@@ -2,9 +2,18 @@ import numpy as np
 import pandas as pd
 import subprocess
 
-def input_writer(filename, values, sza, aod):
+#select the variable to modify and the range (first, last, step)
 
-    O3, H2O, albedo = values
+chosen_variable = 4
+#VARIABLE NUMBERS: O3:0 | H2O:1 | albedo:2 | AOD:3 | angstom:4 | SSA:5 | DOY:6
+variable_range = np.arange(0.00, 1.10, 0.20) #last not included
+
+default = [300, 10, 0.2, 0.1, 0.5, 0.95, 150]
+
+def input_writer(filename, fit_values, variable, value, sza):
+
+    fit_values[variable] = value
+    O3, H2O, albedo, aod, alpha, ssa, doy= fit_values
 
     content = f"""# Atmosphere & source
 data_files_path /home/miguel/libRadtran/data/
@@ -19,8 +28,8 @@ albedo {albedo}
 
 aerosol_default
 aerosol_modify tau set {aod}
-#aerosol_angstrom    0.01 0.0001
-aerosol_modify ssa set 0.9500000000000003
+aerosol_angstrom    {alpha} 0.001
+aerosol_modify ssa set {ssa}
 aerosol_modify gg set 0.7
 
 # Wavelength 
@@ -33,6 +42,7 @@ mol_abs_param crs
 # Solver & geometry
 rte_solver disort
 number_of_streams 10
+day_of_year {doy}
 sza {sza}
 altitude 0.1
 
@@ -59,11 +69,37 @@ def librad_run(input_filename, output_filename):
     results = pd.read_csv(output_filename, sep=r'\s+', header=None)
     return results
 
+def difference_percent(control_col, new_col):
+    # Ensure same length
+    if len(control_col) != len(new_col):
+        raise ValueError("Input columns must have the same length.")
+    
+    diff = new_col - control_col
+    rms_diff = np.sqrt(np.mean(diff**2))
+    rms_control = np.sqrt(np.mean(control_col**2))
+    
+    percent_rms = 100 * rms_diff / rms_control
+    return percent_rms
+
 ##################################
 
-conditions = [300, 7.5, 0.6]
-input_writer("prueba_writer",conditions,0.15, 48)
+df = []
 
-prob = librad_run("prueba_writer.inp", "prueba_out.txt")
+for i in variable_range:
+    input_writer("input_30",default, chosen_variable, i, 30)
+    out_df = librad_run("input_30.inp", "out30.txt")
 
-print(prob[0])
+    control_df = pd.read_csv("control_out_30.txt", sep=r"\s+", header=None)
+    #I have control and the new df both with 4 columns: WL, Gob, Dir, Difu
+    
+    row = [chosen_variable, i]
+    for j in range(1,4):
+        new_col = out_df[j]
+        control_col = control_df[j]
+        diff = difference_percent(new_col, control_col)
+        row.append(diff)
+    df.append(row)
+
+df_results = pd.DataFrame(df, columns=["variable", "value", "Glob_dif", "Dir_dif", "Difu_dif"])
+
+print(df_results)
