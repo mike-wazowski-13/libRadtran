@@ -2,18 +2,26 @@ import numpy as np
 import pandas as pd
 import subprocess
 
-#select the variable to modify and the range (first, last, step)
-
-chosen_variable = 4
+#Define the range (first, last, step) of each magnitude of the following list
 #VARIABLE NUMBERS: O3:0 | H2O:1 | albedo:2 | AOD:3 | angstom:4 | SSA:5 | DOY:6
-variable_range = np.arange(0.00, 1.10, 0.20) #last not included
+magnitudes = ["O3", "H2O", "albedo", "AOD", "angstrom", "SSA", "DOY"]
 
+mg0 = np.arange(200, 501, 100)
+mg1 = np.arange(5, 36, 10)
+mg2 = np.arange(0.0, 1.1, 0.2)
+mg3 = np.arange(0.01, 1.6, 0.1)
+mg4 = np.arange(0.00, 1.10, 0.20) 
+mg5 = np.arange(0.6, 1.01, 0.05)
+mg6 = np.arange(0, 301, 100)
+mg_list = [mg0, mg1, mg2, mg3, mg4, mg5, mg6]
+
+#And now lets define 
 default = [300, 10, 0.2, 0.1, 0.5, 0.95, 150]
 
 def input_writer(filename, fit_values, variable, value, sza):
-
-    fit_values[variable] = value
-    O3, H2O, albedo, aod, alpha, ssa, doy= fit_values
+    constants = fit_values.copy()
+    constants[variable] = value
+    O3, H2O, albedo, aod, alpha, ssa, doy = constants
 
     content = f"""# Atmosphere & source
 data_files_path /home/miguel/libRadtran/data/
@@ -54,13 +62,6 @@ quiet
     with open(f"{filename}.inp", "w") as file:
         file.write(content)
 
-def residual_calc(observed, predicted):
-    observed = np.array(observed)
-    predicted = np.array(predicted)
-
-    rmse = np.sqrt(np.mean((observed - predicted) ** 2))
-    return rmse
-
 def librad_run(input_filename, output_filename):
 #Runs libradtran and returns you a df with 4 columns: WL, Glob, Dir, Dif
 #you can acces them by: results[i], being i the number of the column, and "results" how you decide to name the df
@@ -82,24 +83,28 @@ def difference_percent(control_col, new_col):
     return percent_rms
 
 ##################################
-
+SZA = 30
 df = []
 
-for i in variable_range:
-    input_writer("input_30",default, chosen_variable, i, 30)
-    out_df = librad_run("input_30.inp", "out30.txt")
+for iter in range(len(mg_list)):
+    variable_range = mg_list[iter]
 
-    control_df = pd.read_csv("control_out_30.txt", sep=r"\s+", header=None)
-    #I have control and the new df both with 4 columns: WL, Gob, Dir, Difu
-    
-    row = [chosen_variable, i]
-    for j in range(1,4):
-        new_col = out_df[j]
-        control_col = control_df[j]
-        diff = difference_percent(new_col, control_col)
-        row.append(diff)
-    df.append(row)
+    for i in variable_range:
+        input_writer(f"input_{SZA}",default, iter, i, SZA)
+        out_df = librad_run(f"input_{SZA}.inp", f"out{SZA}.txt")
+
+        control_df = pd.read_csv(f"control_out_{SZA}.txt", sep=r"\s+", header=None)
+        #I have control and the new df both with 4 columns: WL, Gob, Dir, Difu
+        
+        row = [magnitudes[iter], i]
+        for j in range(1,4):
+            new_col = out_df[j]
+            control_col = control_df[j]
+            diff = difference_percent(new_col, control_col)
+            row.append(diff)
+        df.append(row)
 
 df_results = pd.DataFrame(df, columns=["variable", "value", "Glob_dif", "Dir_dif", "Difu_dif"])
+df_results.to_csv(f"libRad{SZA}_variability.csv", index=False)
 
 print(df_results)
